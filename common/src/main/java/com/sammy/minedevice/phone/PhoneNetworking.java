@@ -53,9 +53,15 @@ public final class PhoneNetworking {
     public static final ResourceLocation BANK_SCAN_TARGET = id("phone_bank_scan_target");
     public static final ResourceLocation BANK_SCAN_RESULT = id("phone_bank_scan_result");
     public static final ResourceLocation BANK_TRANSFER_RECEIPT = id("phone_bank_transfer_receipt");
+    public static final ResourceLocation SETTINGS_DISPLAY_NAME_SET = id("settings_display_name_set");
+    public static final ResourceLocation CONTACT_SHARE_STATE = id("contact_share_state");
+    public static final ResourceLocation CONTACT_SCAN = id("contact_scan");
+    public static final ResourceLocation CONTACT_SCAN_RESULT = id("contact_scan_result");
     private static final int CHAT_STATUS_TOAST_LABEL_LENGTH = PhoneData.MAX_CONTACT_NAME_LENGTH + PhoneData.PHONE_NUMBER_LENGTH + 4;
     private static final double BANK_SCAN_MAX_DISTANCE_SQR = 12.0D * 12.0D;
+    private static final double CONTACT_SCAN_MAX_DISTANCE_SQR = 12.0D * 12.0D;
     private static final Set<UUID> ACTIVE_BANK_RECEIVERS = ConcurrentHashMap.newKeySet();
+    private static final Set<UUID> ACTIVE_CONTACT_SHARERS = ConcurrentHashMap.newKeySet();
     private static boolean initialized;
 
     private PhoneNetworking() {
@@ -210,10 +216,67 @@ public final class PhoneNetworking {
             context.queue(() -> scanBankPaymentTarget((ServerPlayer) context.getPlayer(), targetId));
         });
 
+        NetworkManager.registerReceiver(NetworkManager.c2s(), SETTINGS_DISPLAY_NAME_SET, (buf, context) -> {
+            String displayName = buf.readUtf(PhoneData.MAX_DISPLAY_NAME_LENGTH);
+            context.queue(() -> {
+                ServerPlayer player = (ServerPlayer) context.getPlayer();
+                ItemStack phoneStack = PhoneData.findPhoneStack(player);
+                if (phoneStack.isEmpty()) {
+                    return;
+                }
+                PhoneData.setDisplayName(phoneStack, displayName);
+                PhoneData.markDirty(player);
+                String saved = PhoneData.getDisplayName(phoneStack);
+                player.sendSystemMessage(Component.translatable(
+                        saved.isEmpty()
+                                ? "screen.minedevice.phone.settings.display_name_cleared"
+                                : "screen.minedevice.phone.settings.display_name_saved",
+                        saved.isEmpty() ? "" : saved));
+            });
+        });
+
+        NetworkManager.registerReceiver(NetworkManager.c2s(), CONTACT_SHARE_STATE, (buf, context) -> {
+            boolean active = buf.readBoolean();
+            context.queue(() -> {
+                ServerPlayer player = (ServerPlayer) context.getPlayer();
+                if (active && PhoneData.hasPhone(player)) {
+                    ACTIVE_CONTACT_SHARERS.add(player.getUUID());
+                } else {
+                    ACTIVE_CONTACT_SHARERS.remove(player.getUUID());
+                }
+            });
+        });
+
+        NetworkManager.registerReceiver(NetworkManager.c2s(), CONTACT_SCAN, (buf, context) -> {
+            context.queue(() -> {
+                ServerPlayer scanner = (ServerPlayer) context.getPlayer();
+                if (scanner == null || scanner.getServer() == null || !PhoneData.hasPhone(scanner)) {
+                    sendContactScanResult(scanner, "", "");
+                    return;
+                }
+                for (UUID sharerId : ACTIVE_CONTACT_SHARERS) {
+                    if (sharerId.equals(scanner.getUUID())) {
+                        continue;
+                    }
+                    ServerPlayer sharer = scanner.getServer().getPlayerList().getPlayer(sharerId);
+                    if (sharer == null || !PhoneData.hasPhone(sharer)) {
+                        continue;
+                    }
+                    if (scanner.distanceToSqr(sharer) > CONTACT_SCAN_MAX_DISTANCE_SQR) {
+                        continue;
+                    }
+                    sendContactScanResult(scanner, PhoneData.getPhoneNumber(sharer), sharer.getGameProfile().getName());
+                    return;
+                }
+                sendContactScanResult(scanner, "", "");
+            });
+        });
+
         PlayerEvent.PLAYER_JOIN.register(player -> {
             PhoneCallManager.syncPlayer(player);
             syncChatState(player);
         });
+        PlayerEvent.PLAYER_QUIT.register(player -> ACTIVE_CONTACT_SHARERS.remove(player.getUUID()));
         TickEvent.SERVER_PRE.register(server -> {
             pruneBankReceivers(server);
             deliverPendingConversationDeletes(server);
@@ -346,6 +409,16 @@ public final class PhoneNetworking {
 
         player.displayClientMessage(status, true);
         sendBankState(player, status);
+    }
+
+    private static void sendContactScanResult(ServerPlayer player, String number, String displayName) {
+        if (player == null) {
+            return;
+        }
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        buf.writeUtf(number == null ? "" : number, PhoneData.PHONE_NUMBER_LENGTH);
+        buf.writeUtf(displayName == null ? "" : displayName, PhoneData.MAX_CONTACT_NAME_LENGTH);
+        NetworkManager.sendToPlayer(player, CONTACT_SCAN_RESULT, buf);
     }
 
     private static void sendBankScanResult(ServerPlayer scanner, ServerPlayer target) {
@@ -539,6 +612,15 @@ public final class PhoneNetworking {
             PhoneData.markDirty(player);
             player.sendSystemMessage(Component.translatable(
                     "screen.minedevice.phone.call.contacts.saved", contactName));
+            if (ChatStorageManager.isAvailable()) {
+                UUID targetUuid = null;
+                ServerPlayer targetPlayer = PhoneCallManager.findOnlineByNumber(server, number);
+                if (targetPlayer != null) {
+                    targetUuid = targetPlayer.getUUID();
+                }
+                ChatStorageManager.getInstance().addFriend(player.getUUID(), number, contactName, targetUuid);
+                syncChatState(player);
+            }
         }
     }
 
@@ -651,7 +733,7 @@ public final class PhoneNetworking {
             return;
         }
 
-        String resolvedName = target.getGameProfile().getName();
+        String resolvedName = PhoneCallManager.getPlayerLabel(target);
         UUID targetUuid = target.getUUID();
         if (PhoneChatData.addFriend(ItemStack.EMPTY, resolvedName, number, targetUuid, player)) {
             syncChatState(player);

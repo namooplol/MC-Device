@@ -64,7 +64,7 @@ final class PhoneChatSurfaceRenderer {
         UiRect contentBounds = screen.getChatSurfaceBounds();
         UiRect inputBounds = screen.getChatFriendInputBounds();
         UiRect addButtonBounds = screen.getChatAddButtonBounds();
-        List<PhoneContact> friends = screen.getChatFriends();
+        List<PhoneContact> friends = screen.getChatFriendsForCurrentPage();
         String ownNumber = screen.getOwnPhoneNumber();
         int rowTop = contentBounds.top + Math.max(5, Math.round(6 * screen.scale));
         int rowHeight = Math.max(14, Math.round(16 * screen.scale));
@@ -170,6 +170,46 @@ final class PhoneChatSurfaceRenderer {
             drawFittedText(guiGraphics, font, previewText, textLeft, previewY, textWidth,
                     previewMessage == null ? TEXT_FAINT : TEXT_MUTED, 0.26F, 0.66F);
         }
+
+        if (screen.isChatPageNavActive()) {
+            UiRect prevBounds = screen.getChatPrevPageButtonBounds();
+            UiRect nextBounds = screen.getChatNextPageButtonBounds();
+            UiRect navBounds = screen.getChatPageNavBounds();
+            int pageCount = screen.getChatPageCount();
+            int currentPage = screen.chatPage;
+            boolean canPrev = currentPage > 0;
+            boolean canNext = currentPage < pageCount - 1;
+
+            guiGraphics.fill(prevBounds.left, prevBounds.top, prevBounds.right(), prevBounds.bottom(),
+                    canPrev ? 0xFFEAEBEE : 0x44EAEBEE);
+            guiGraphics.fill(nextBounds.left, nextBounds.top, nextBounds.right(), nextBounds.bottom(),
+                    canNext ? 0xFFEAEBEE : 0x44EAEBEE);
+
+            Component prevArrow = Component.literal("<");
+            Component nextArrow = Component.literal(">");
+            Component pageLabel = Component.literal((currentPage + 1) + " / " + pageCount);
+
+            renderNavButton(guiGraphics, font, prevBounds, prevArrow, canPrev ? 0xFF007AFF : 0xFF8E8E93, screen.scale);
+            renderNavButton(guiGraphics, font, nextBounds, nextArrow, canNext ? 0xFF007AFF : 0xFF8E8E93, screen.scale);
+
+            float labelScale = PhoneScreenDraw.textScaleToFit(font, pageLabel,
+                    navBounds.width - prevBounds.width - nextBounds.width - Math.round(4 * screen.scale), 0.25F);
+            int labelW = PhoneScreenDraw.scaledTextWidth(font, pageLabel, labelScale);
+            int labelH = PhoneScreenDraw.scaledTextHeight(font, labelScale);
+            int labelX = navBounds.left + (navBounds.width - labelW) / 2;
+            int labelY = navBounds.top + (navBounds.height - labelH) / 2;
+            PhoneScreenDraw.drawScaledText(guiGraphics, font, pageLabel, labelX, labelY, 0xFF8E8E93, false, labelScale);
+        }
+    }
+
+    private static void renderNavButton(GuiGraphics guiGraphics, Font font, UiRect bounds,
+                                        Component text, int textColor, float scale) {
+        float textScale = PhoneScreenDraw.textScaleToFit(font, text, bounds.width - Math.round(6 * scale), 0.25F);
+        int textWidth = PhoneScreenDraw.scaledTextWidth(font, text, textScale);
+        int textHeight = PhoneScreenDraw.scaledTextHeight(font, textScale);
+        int textX = bounds.left + (bounds.width - textWidth) / 2;
+        int textY = bounds.top + (bounds.height - textHeight) / 2;
+        PhoneScreenDraw.drawScaledText(guiGraphics, font, text, textX, textY, textColor, false, textScale);
     }
 
     static void renderChatThreadSurface(PhoneScreen screen, GuiGraphics guiGraphics) {

@@ -94,7 +94,9 @@ final class PhoneCallSurfaceRenderer {
         UiRect saveButtonBounds = screen.getContactSaveButtonBounds();
         String saveCandidateNumber = screen.getContactSaveCandidateNumber();
         boolean canSaveNumber = !saveCandidateNumber.isEmpty() && !screen.hasSavedContact(saveCandidateNumber);
-        List<PhoneContact> contacts = screen.getPhoneContacts();
+        List<PhoneContact> allContacts = screen.getPhoneContacts();
+        List<PhoneContact> contacts = screen.getContactsForCurrentPage();
+        boolean hasPageNav = allContacts.size() > PhoneScreen.CONTACTS_PER_PAGE;
 
         guiGraphics.fill(contentBounds.left, contentBounds.top, contentBounds.right(), contentBounds.bottom(), 0x99FFFFFF);
         guiGraphics.fill(contentBounds.left, contentBounds.top, contentBounds.right(), contentBounds.top + headerHeight, 0xDEF9F9FB);
@@ -152,26 +154,112 @@ final class PhoneCallSurfaceRenderer {
                 PhoneContact contact = contacts.get(index);
                 UiRect rowBounds = screen.getContactRowBounds(index, contacts.size());
                 UiRect deleteBounds = screen.getContactDeleteButtonBounds(index, contacts.size());
+                UiRect editBounds = screen.getContactEditButtonBounds(index, contacts.size());
                 guiGraphics.fill(rowBounds.left, rowBounds.top, rowBounds.right(), rowBounds.bottom(), 0xFFEAEBEE);
                 guiGraphics.fill(rowBounds.left + 1, rowBounds.top + 1, rowBounds.right() - 1, rowBounds.bottom() - 1, 0xFFEAEBEE);
 
-                Component nameText = Component.literal(contact.displayName());
-                Component numberText = Component.literal(contact.number());
-                int textLeft = rowBounds.left + Math.max(5, Math.round(6 * screen.scale));
-                int textRight = deleteBounds.left - Math.max(4, Math.round(6 * screen.scale));
-                int textMaxWidth = Math.max(18, textRight - textLeft);
-                float nameScale = PhoneScreenDraw.textScaleToFit(minecraft.font, nameText, textMaxWidth, 0.40F);
-                float numberScale = PhoneScreenDraw.textScaleToFit(minecraft.font, numberText, textMaxWidth, 0.35F);
-                PhoneScreenDraw.drawScaledText(guiGraphics, minecraft.font, nameText, textLeft,
-                        rowBounds.top + Math.max(3, Math.round(4 * screen.scale)), 0xFF000000, false, nameScale);
-                PhoneScreenDraw.drawScaledText(guiGraphics, minecraft.font, numberText, textLeft,
-                        rowBounds.bottom() - PhoneScreenDraw.scaledTextHeight(minecraft.font, numberScale)
-                                - Math.max(3, Math.round(4 * screen.scale)),
-                        0xFF8E8E93, false, numberScale);
+                boolean isRenaming = screen.contactRenameNumber.equals(contact.number());
+                if (isRenaming) {
+                    // show text input in row
+                    String buf = screen.contactRenameBuffer;
+                    String display = buf.isEmpty() ? "" : buf;
+                    Component cursor = Component.literal(display + "|");
+                    int textLeft = rowBounds.left + Math.max(5, Math.round(6 * screen.scale));
+                    int textRight = editBounds.left - Math.max(2, Math.round(3 * screen.scale));
+                    int textMaxWidth = Math.max(18, textRight - textLeft);
+                    float inputScale = PhoneScreenDraw.textScaleToFit(minecraft.font, cursor, textMaxWidth, 0.40F);
+                    int inputHeight = PhoneScreenDraw.scaledTextHeight(minecraft.font, inputScale);
+                    int inputY = rowBounds.top + (rowBounds.height - inputHeight) / 2;
+                    guiGraphics.fill(rowBounds.left + 1, rowBounds.top + 1, rowBounds.right() - 1, rowBounds.bottom() - 1, 0xFFFFFFFF);
+                    PhoneScreenDraw.drawScaledText(guiGraphics, minecraft.font, cursor, textLeft, inputY, 0xFF007AFF, false, inputScale);
+                } else {
+                    Component nameText = Component.literal(contact.displayName());
+                    Component numberText = Component.literal(contact.number());
+                    int textLeft = rowBounds.left + Math.max(5, Math.round(6 * screen.scale));
+                    int textRight = editBounds.left - Math.max(2, Math.round(3 * screen.scale));
+                    int textMaxWidth = Math.max(18, textRight - textLeft);
+                    float nameScale = PhoneScreenDraw.textScaleToFit(minecraft.font, nameText, textMaxWidth, 0.40F);
+                    float numberScale = PhoneScreenDraw.textScaleToFit(minecraft.font, numberText, textMaxWidth, 0.35F);
+                    PhoneScreenDraw.drawScaledText(guiGraphics, minecraft.font, nameText, textLeft,
+                            rowBounds.top + Math.max(3, Math.round(4 * screen.scale)), 0xFF000000, false, nameScale);
+                    PhoneScreenDraw.drawScaledText(guiGraphics, minecraft.font, numberText, textLeft,
+                            rowBounds.bottom() - PhoneScreenDraw.scaledTextHeight(minecraft.font, numberScale)
+                                    - Math.max(3, Math.round(4 * screen.scale)),
+                            0xFF8E8E93, false, numberScale);
+                }
 
+                guiGraphics.blit(PhoneScreen.EDIT_BUTTON_TEXTURE, editBounds.left, editBounds.top,
+                        editBounds.width, editBounds.height, 0.0F, 0.0F, 24, 24, 24, 24);
                 guiGraphics.blit(PhoneScreen.DELETE_BUTTON_TEXTURE, deleteBounds.left, deleteBounds.top,
                         deleteBounds.width, deleteBounds.height, 0.0F, 0.0F, 24, 24, 24, 24);
             }
+        }
+
+        if (hasPageNav) {
+            UiRect prevBounds = screen.getContactPrevPageButtonBounds();
+            UiRect nextBounds = screen.getContactNextPageButtonBounds();
+            UiRect navBounds = screen.getContactPageNavBounds();
+            int pageCount = screen.getContactPageCount();
+            int currentPage = screen.contactPage;
+
+            boolean canPrev = currentPage > 0;
+            boolean canNext = currentPage < pageCount - 1;
+
+            guiGraphics.fill(prevBounds.left, prevBounds.top, prevBounds.right(), prevBounds.bottom(),
+                    canPrev ? 0xFFEAEBEE : 0x44EAEBEE);
+            guiGraphics.fill(nextBounds.left, nextBounds.top, nextBounds.right(), nextBounds.bottom(),
+                    canNext ? 0xFFEAEBEE : 0x44EAEBEE);
+
+            Component prevArrow = Component.literal("<");
+            Component nextArrow = Component.literal(">");
+            Component pageLabel = Component.literal((currentPage + 1) + " / " + pageCount);
+
+            renderSmallButton(guiGraphics, minecraft.font, prevBounds, prevArrow,
+                    canPrev ? 0xFF007AFF : 0xFF8E8E93, screen.scale);
+            renderSmallButton(guiGraphics, minecraft.font, nextBounds, nextArrow,
+                    canNext ? 0xFF007AFF : 0xFF8E8E93, screen.scale);
+
+            float labelScale = PhoneScreenDraw.textScaleToFit(minecraft.font, pageLabel,
+                    navBounds.width - prevBounds.width - nextBounds.width - Math.round(4 * screen.scale), 0.25F);
+            int labelW = PhoneScreenDraw.scaledTextWidth(minecraft.font, pageLabel, labelScale);
+            int labelH = PhoneScreenDraw.scaledTextHeight(minecraft.font, labelScale);
+            int labelX = navBounds.left + (navBounds.width - labelW) / 2;
+            int labelY = navBounds.top + (navBounds.height - labelH) / 2;
+            PhoneScreenDraw.drawScaledText(guiGraphics, minecraft.font, pageLabel, labelX, labelY, 0xFF8E8E93, false, labelScale);
+        }
+
+        // Scan result card (above share/scan buttons)
+        if (!screen.contactScanResultNumber.isEmpty()) {
+            UiRect saveBounds = screen.getContactScanSaveButtonBounds();
+            guiGraphics.fill(saveBounds.left, saveBounds.top, saveBounds.right(), saveBounds.bottom(), 0xFFEAEBEE);
+            guiGraphics.fill(saveBounds.left + 1, saveBounds.top + 1, saveBounds.right() - 1, saveBounds.bottom() - 1, 0xFFFFFFFF);
+            String scanLabel = screen.contactScanResultName.isEmpty()
+                    ? screen.contactScanResultNumber
+                    : screen.contactScanResultName + " (" + screen.contactScanResultNumber + ")";
+            Component scanResultText = Component.translatable("screen.minedevice.phone.call.contacts.scan_save", scanLabel);
+            float scanScale = PhoneScreenDraw.textScaleToFit(minecraft.font, scanResultText,
+                    saveBounds.width - Math.round(8 * screen.scale), 0.30F);
+            int scanW = PhoneScreenDraw.scaledTextWidth(minecraft.font, scanResultText, scanScale);
+            int scanH = PhoneScreenDraw.scaledTextHeight(minecraft.font, scanScale);
+            int scanX = saveBounds.left + (saveBounds.width - scanW) / 2;
+            int scanY = saveBounds.top + (saveBounds.height - scanH) / 2;
+            PhoneScreenDraw.drawScaledText(guiGraphics, minecraft.font, scanResultText, scanX, scanY, 0xFF007AFF, false, scanScale);
+        }
+
+        // Share / Scan buttons (mobile only)
+        if (!screen.isHomePhoneMode()) {
+            UiRect shareBounds = screen.getContactShareButtonBounds();
+            UiRect scanBounds = screen.getContactScanButtonBounds();
+            int shareFill = screen.contactShareMode ? 0xFF34C759 : 0xFFEAEBEE;
+            int shareTextFill = screen.contactShareMode ? 0xFFFFFFFF : 0xFF007AFF;
+            guiGraphics.fill(shareBounds.left, shareBounds.top, shareBounds.right(), shareBounds.bottom(), shareFill);
+            guiGraphics.fill(scanBounds.left, scanBounds.top, scanBounds.right(), scanBounds.bottom(), 0xFFEAEBEE);
+            Component shareText = Component.translatable(screen.contactShareMode
+                    ? "screen.minedevice.phone.call.contacts.sharing"
+                    : "screen.minedevice.phone.call.contacts.share");
+            Component scanText = Component.translatable("screen.minedevice.phone.call.contacts.scan");
+            renderSmallButton(guiGraphics, minecraft.font, shareBounds, shareText, shareTextFill, screen.scale);
+            renderSmallButton(guiGraphics, minecraft.font, scanBounds, scanText, 0xFF007AFF, screen.scale);
         }
 
         renderCallMenuTabs(screen, guiGraphics, false);
@@ -329,6 +417,16 @@ final class PhoneCallSurfaceRenderer {
             guiGraphics.fill(bounds.left + underlineInset, underlineY,
                     bounds.right() - underlineInset, underlineY + underlineHeight, 0xFF007AFF);
         }
+    }
+
+    private static void renderSmallButton(GuiGraphics guiGraphics, Font font, UiRect bounds,
+                                          Component text, int textColor, float scale) {
+        float textScale = PhoneScreenDraw.textScaleToFit(font, text, bounds.width - Math.round(6 * scale), 0.25F);
+        int textWidth = PhoneScreenDraw.scaledTextWidth(font, text, textScale);
+        int textHeight = PhoneScreenDraw.scaledTextHeight(font, textScale);
+        int textX = bounds.left + (bounds.width - textWidth) / 2;
+        int textY = bounds.top + (bounds.height - textHeight) / 2;
+        PhoneScreenDraw.drawScaledText(guiGraphics, font, text, textX, textY, textColor, false, textScale);
     }
 
     private static void renderDialPadButton(GuiGraphics guiGraphics, Font font, UiRect bounds, Component text,

@@ -113,7 +113,7 @@ public final class PhoneCallManager {
                 caller,
                 new PlayerEndpoint(caller.getUUID()),
                 PhoneData.getPhoneNumber(caller),
-                caller.getGameProfile().getName(),
+                getPlayerLabel(caller),
                 rawNumber
         );
     }
@@ -347,13 +347,24 @@ public final class PhoneCallManager {
     }
 
     public static String resolveContactName(MinecraftServer server, String rawNumber, String fallback) {
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback;
+        }
         if (server != null) {
             ServerPlayer targetPlayer = findOnlineByNumber(server, rawNumber);
             if (targetPlayer != null) {
-                return targetPlayer.getGameProfile().getName();
+                return getPlayerLabel(targetPlayer);
             }
         }
         return fallback == null ? "" : fallback;
+    }
+
+    public static String getPlayerLabel(ServerPlayer player) {
+        if (player == null) {
+            return "";
+        }
+        String displayName = PhoneData.getDisplayName(player);
+        return displayName.isBlank() ? player.getGameProfile().getName() : displayName;
     }
 
     private static void startCall(MinecraftServer server, ServerPlayer requester, Endpoint callerEndpoint,
@@ -608,7 +619,7 @@ public final class PhoneCallManager {
         if (endpoint instanceof PlayerEndpoint playerEndpoint) {
             ServerPlayer player = getPlayer(server, playerEndpoint.playerId());
             if (player != null) {
-                return player.getGameProfile().getName();
+                return getPlayerLabel(player);
             }
         }
         return blankToNumber(endpoint.displayName(), fallbackNumber);

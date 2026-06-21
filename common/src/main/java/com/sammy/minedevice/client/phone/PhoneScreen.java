@@ -100,6 +100,8 @@ public final class PhoneScreen extends Screen {
             "textures/gui/phone_gui/camflip_button.png");
     static final ResourceLocation DELETE_BUTTON_TEXTURE = new ResourceLocation(Minedevice.MOD_ID,
             "textures/gui/phone_gui/delete_button.png");
+    static final ResourceLocation EDIT_BUTTON_TEXTURE = new ResourceLocation(Minedevice.MOD_ID,
+            "textures/gui/phone_gui/edit_button.png");
     static final ResourceLocation ANSWER_BUTTON_TEXTURE = new ResourceLocation(Minedevice.MOD_ID,
             "textures/gui/phone_gui/answer_button.png");
     static final ResourceLocation HANGUP_BUTTON_TEXTURE = new ResourceLocation(Minedevice.MOD_ID,
@@ -233,6 +235,22 @@ public final class PhoneScreen extends Screen {
     boolean wallpaperContextMenuOpen;
     // Settings wallpaper picker state
     int settingsWallpaperPage; // 0 = main, 1 = pick lock, 2 = pick home
+    // Settings display name editing
+    String settingsDisplayNameBuffer = "";
+    boolean settingsEditingDisplayName = false;
+    // Contact rename (inline edit)
+    String contactRenameNumber = "";
+    String contactRenameBuffer = "";
+    // Contact pagination
+    int contactPage = 0;
+    static final int CONTACTS_PER_PAGE = 5;
+    // Chat pagination
+    int chatPage = 0;
+    static final int CHAT_FRIENDS_PER_PAGE = 5;
+    // Contact scan/share
+    boolean contactShareMode = false;
+    String contactScanResultNumber = "";
+    String contactScanResultName = "";
 
     public PhoneScreen() {
         this(InteractionHand.MAIN_HAND);
@@ -305,6 +323,18 @@ public final class PhoneScreen extends Screen {
         activeChatNumber = "";
         activeChatName = "";
         chatDeleteTargetNumber = "";
+        if (contactShareMode) {
+            PhoneNetworkingClient.requestContactShareState(false);
+            contactShareMode = false;
+        }
+        contactScanResultNumber = "";
+        contactScanResultName = "";
+        contactRenameNumber = "";
+        contactRenameBuffer = "";
+        contactPage = 0;
+        chatPage = 0;
+        settingsDisplayNameBuffer = "";
+        settingsEditingDisplayName = false;
         bankTransferNumber = "";
         bankTransferAmount = "";
         bankPaymentName = "";
@@ -583,7 +613,30 @@ public final class PhoneScreen extends Screen {
             return true;
         }
 
+        if (settingsAppMode && settingsEditingDisplayName) {
+            if (keyCode == InputConstants.KEY_BACKSPACE) {
+                if (!settingsDisplayNameBuffer.isEmpty()) {
+                    settingsDisplayNameBuffer = settingsDisplayNameBuffer.substring(0, settingsDisplayNameBuffer.length() - 1);
+                }
+                return true;
+            }
+            if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) {
+                confirmSettingsDisplayName();
+                return true;
+            }
+            if (keyCode == InputConstants.KEY_ESCAPE) {
+                settingsEditingDisplayName = false;
+                settingsDisplayNameBuffer = "";
+                return true;
+            }
+        }
+
         if (settingsAppMode && keyCode == InputConstants.KEY_ESCAPE) {
+            if (settingsEditingDisplayName) {
+                settingsEditingDisplayName = false;
+                settingsDisplayNameBuffer = "";
+                return true;
+            }
             if (settingsWallpaperPage != 0) {
                 settingsWallpaperPage = 0;
                 rebuildWidgets();
@@ -591,6 +644,23 @@ public final class PhoneScreen extends Screen {
             }
             closeSettingsApp();
             return true;
+        }
+
+        if (callContactsMode && !contactRenameNumber.isEmpty()) {
+            if (keyCode == InputConstants.KEY_BACKSPACE) {
+                if (!contactRenameBuffer.isEmpty()) {
+                    contactRenameBuffer = contactRenameBuffer.substring(0, contactRenameBuffer.length() - 1);
+                }
+                return true;
+            }
+            if (keyCode == InputConstants.KEY_RETURN || keyCode == InputConstants.KEY_NUMPADENTER) {
+                confirmContactRename();
+                return true;
+            }
+            if (keyCode == InputConstants.KEY_ESCAPE) {
+                cancelContactRename();
+                return true;
+            }
         }
 
         if (callAppMode) {
@@ -718,6 +788,20 @@ public final class PhoneScreen extends Screen {
             return true;
         }
 
+        if (settingsAppMode && settingsEditingDisplayName && isAcceptedChatCharacter(codePoint)) {
+            if (settingsDisplayNameBuffer.length() < com.sammy.minedevice.phone.PhoneData.MAX_DISPLAY_NAME_LENGTH) {
+                settingsDisplayNameBuffer += codePoint;
+            }
+            return true;
+        }
+
+        if (callContactsMode && !contactRenameNumber.isEmpty() && isAcceptedChatCharacter(codePoint)) {
+            if (contactRenameBuffer.length() < com.sammy.minedevice.phone.PhoneData.MAX_CONTACT_NAME_LENGTH) {
+                contactRenameBuffer += codePoint;
+            }
+            return true;
+        }
+
         if (bankAppMode && acceptsBankNumericInput() && Character.isDigit(codePoint)) {
             appendBankDigit(String.valueOf(codePoint));
             return true;
@@ -828,13 +912,50 @@ public final class PhoneScreen extends Screen {
                 return true;
             }
 
-            List<PhoneContact> contacts = getPhoneContacts();
+            if (isContactsPageNavActive()) {
+                if (getContactPrevPageButtonBounds().contains(mouseX, mouseY)) {
+                    if (contactPage > 0) contactPage--;
+                    return true;
+                }
+                if (getContactNextPageButtonBounds().contains(mouseX, mouseY)) {
+                    if (contactPage < getContactPageCount() - 1) contactPage++;
+                    return true;
+                }
+            }
+
+            if (getContactShareButtonBounds().contains(mouseX, mouseY)) {
+                if (contactShareMode) {
+                    stopContactShareMode();
+                } else {
+                    startContactShareMode();
+                }
+                return true;
+            }
+
+            if (getContactScanButtonBounds().contains(mouseX, mouseY)) {
+                PhoneNetworkingClient.requestContactScan();
+                return true;
+            }
+
+            if (!contactScanResultNumber.isEmpty() && getContactScanSaveButtonBounds().contains(mouseX, mouseY)) {
+                requestSaveContact(contactScanResultNumber, contactScanResultName);
+                contactScanResultNumber = "";
+                contactScanResultName = "";
+                return true;
+            }
+
+            List<PhoneContact> contacts = getContactsForCurrentPage();
             int contactIndex = getContactIndexAt(mouseX, mouseY, contacts);
             if (contactIndex >= 0 && contactIndex < contacts.size()) {
                 PhoneContact contact = contacts.get(contactIndex);
                 if (getContactDeleteButtonBounds(contactIndex, contacts.size()).contains(mouseX, mouseY)) {
                     requestDeleteContact(contact.number());
-                } else {
+                    if (contactRenameNumber.equals(contact.number())) {
+                        cancelContactRename();
+                    }
+                } else if (getContactEditButtonBounds(contactIndex, contacts.size()).contains(mouseX, mouseY)) {
+                    startContactRename(contact.number(), contact.displayName());
+                } else if (contactRenameNumber.isEmpty()) {
                     startCallSession(contact.number());
                 }
                 return true;
@@ -842,7 +963,7 @@ public final class PhoneScreen extends Screen {
         }
 
         if (chatAppMode) {
-            List<PhoneContact> friends = getChatFriends();
+            List<PhoneContact> friends = getChatFriendsForCurrentPage();
             int friendIndex = getChatFriendIndexAt(mouseX, mouseY, friends);
 
             if (button == 1) {
@@ -857,6 +978,17 @@ public final class PhoneScreen extends Screen {
             }
 
             if (button == 0) {
+                if (isChatPageNavActive()) {
+                    if (getChatPrevPageButtonBounds().contains(mouseX, mouseY)) {
+                        if (chatPage > 0) chatPage--;
+                        return true;
+                    }
+                    if (getChatNextPageButtonBounds().contains(mouseX, mouseY)) {
+                        if (chatPage < getChatPageCount() - 1) chatPage++;
+                        return true;
+                    }
+                }
+
                 if (hasChatDeleteMenuOpen()) {
                     int deleteTargetIndex = getChatDeleteTargetIndex(friends);
                     if (deleteTargetIndex >= 0
@@ -1625,22 +1757,59 @@ public final class PhoneScreen extends Screen {
         return getLayoutState().contactRowsBounds(canSaveNumber);
     }
 
+    private boolean isContactsPageNavActive() {
+        return getPhoneContacts().size() > CONTACTS_PER_PAGE;
+    }
+
+    List<PhoneContact> getContactsForCurrentPage() {
+        List<PhoneContact> all = getPhoneContacts();
+        if (all.isEmpty()) return List.of();
+        int pageCount = Math.max(1, (all.size() + CONTACTS_PER_PAGE - 1) / CONTACTS_PER_PAGE);
+        contactPage = Math.min(contactPage, pageCount - 1);
+        int start = contactPage * CONTACTS_PER_PAGE;
+        int end = Math.min(start + CONTACTS_PER_PAGE, all.size());
+        return all.subList(start, end);
+    }
+
+    int getContactPageCount() {
+        int total = getPhoneContacts().size();
+        return Math.max(1, (total + CONTACTS_PER_PAGE - 1) / CONTACTS_PER_PAGE);
+    }
+
     UiRect getContactRowBounds(int index, int contactCount) {
         String saveCandidateNumber = getContactSaveCandidateNumber();
         boolean canSaveNumber = !saveCandidateNumber.isEmpty() && !hasSavedContact(saveCandidateNumber);
-        return getLayoutState().contactRowBounds(index, contactCount, canSaveNumber);
+        return getLayoutState().contactRowBounds(index, contactCount, canSaveNumber, isContactsPageNavActive());
     }
 
     UiRect getContactDeleteButtonBounds(int index, int contactCount) {
         String saveCandidateNumber = getContactSaveCandidateNumber();
         boolean canSaveNumber = !saveCandidateNumber.isEmpty() && !hasSavedContact(saveCandidateNumber);
-        return getLayoutState().contactDeleteButtonBounds(index, contactCount, canSaveNumber);
+        return getLayoutState().contactDeleteButtonBounds(index, contactCount, canSaveNumber, isContactsPageNavActive());
     }
 
     private int getContactIndexAt(double mouseX, double mouseY, List<PhoneContact> contacts) {
         String saveCandidateNumber = getContactSaveCandidateNumber();
         boolean canSaveNumber = !saveCandidateNumber.isEmpty() && !hasSavedContact(saveCandidateNumber);
-        return getLayoutState().contactIndexAt(mouseX, mouseY, contacts.size(), canSaveNumber);
+        return getLayoutState().contactIndexAt(mouseX, mouseY, contacts.size(), canSaveNumber, isContactsPageNavActive());
+    }
+
+    UiRect getContactPrevPageButtonBounds() {
+        String saveCandidateNumber = getContactSaveCandidateNumber();
+        boolean canSaveNumber = !saveCandidateNumber.isEmpty() && !hasSavedContact(saveCandidateNumber);
+        return getLayoutState().contactPrevPageButtonBounds(canSaveNumber);
+    }
+
+    UiRect getContactNextPageButtonBounds() {
+        String saveCandidateNumber = getContactSaveCandidateNumber();
+        boolean canSaveNumber = !saveCandidateNumber.isEmpty() && !hasSavedContact(saveCandidateNumber);
+        return getLayoutState().contactNextPageButtonBounds(canSaveNumber);
+    }
+
+    UiRect getContactPageNavBounds() {
+        String saveCandidateNumber = getContactSaveCandidateNumber();
+        boolean canSaveNumber = !saveCandidateNumber.isEmpty() && !hasSavedContact(saveCandidateNumber);
+        return getLayoutState().contactPageNavBounds(canSaveNumber);
     }
 
     UiRect getCallConnectButtonBounds() {
@@ -1689,11 +1858,36 @@ public final class PhoneScreen extends Screen {
         return new UiRect(contentBounds.right() - width - sidePadding, top, width, height);
     }
 
+    UiRect getChatPageNavBounds() {
+        UiRect contentBounds = getChatSurfaceBounds();
+        int sidePadding = getChatSidePadding();
+        int height = Math.max(12, Math.round(14 * scale));
+        int bottom = contentBounds.bottom() - Math.max(2, Math.round(3 * scale));
+        return new UiRect(contentBounds.left + sidePadding, bottom - height,
+                contentBounds.width - (sidePadding * 2), height);
+    }
+
+    UiRect getChatPrevPageButtonBounds() {
+        UiRect nav = getChatPageNavBounds();
+        int w = (nav.width / 2) - Math.max(1, Math.round(2 * scale));
+        return new UiRect(nav.left, nav.top, w, nav.height);
+    }
+
+    UiRect getChatNextPageButtonBounds() {
+        UiRect nav = getChatPageNavBounds();
+        int w = (nav.width / 2) - Math.max(1, Math.round(2 * scale));
+        return new UiRect(nav.right() - w, nav.top, w, nav.height);
+    }
+
     UiRect getChatFriendRowsBounds() {
         UiRect contentBounds = getChatSurfaceBounds();
         int sidePadding = getChatSidePadding();
         int top = getChatFriendInputBounds().bottom() + Math.max(5, Math.round(6 * scale));
         int bottom = contentBounds.bottom() - Math.max(2, Math.round(3 * scale));
+        if (isChatPageNavActive()) {
+            int gap = Math.max(2, Math.round(3 * scale));
+            bottom = getChatPageNavBounds().top - gap;
+        }
         return new UiRect(contentBounds.left + sidePadding, top,
                 contentBounds.width - (sidePadding * 2), Math.max(24, bottom - top));
     }
@@ -1975,6 +2169,25 @@ public final class PhoneScreen extends Screen {
             return List.of();
         }
         return PhoneClientChatState.getFriends();
+    }
+
+    boolean isChatPageNavActive() {
+        return getChatFriends().size() > CHAT_FRIENDS_PER_PAGE;
+    }
+
+    List<PhoneContact> getChatFriendsForCurrentPage() {
+        List<PhoneContact> all = getChatFriends();
+        if (all.isEmpty()) return List.of();
+        int pageCount = Math.max(1, (all.size() + CHAT_FRIENDS_PER_PAGE - 1) / CHAT_FRIENDS_PER_PAGE);
+        chatPage = Math.min(chatPage, pageCount - 1);
+        int start = chatPage * CHAT_FRIENDS_PER_PAGE;
+        int end = Math.min(start + CHAT_FRIENDS_PER_PAGE, all.size());
+        return all.subList(start, end);
+    }
+
+    int getChatPageCount() {
+        int total = getChatFriends().size();
+        return Math.max(1, (total + CHAT_FRIENDS_PER_PAGE - 1) / CHAT_FRIENDS_PER_PAGE);
     }
 
     List<PhoneChatMessage> getActiveChatMessages() {
@@ -2320,6 +2533,7 @@ public final class PhoneScreen extends Screen {
         chatAppMode = true;
         chatThreadMode = false;
         bankAppMode = false;
+        chatPage = 0;
         clearChatDeleteMenu();
         if (!activeChatNumber.isEmpty() && activeChatName.isBlank()) {
             activeChatName = PhoneClientChatState.getFriendName(activeChatNumber);
@@ -2523,6 +2737,8 @@ public final class PhoneScreen extends Screen {
         chatAppMode = false;
         chatThreadMode = false;
         bankAppMode = false;
+        contactPage = 0;
+        chatPage = 0;
         observedCallStateRevision = Long.MIN_VALUE;
         requestCallSync();
         applyCallStateFromServer();
@@ -3500,13 +3716,92 @@ public final class PhoneScreen extends Screen {
     void openSettingsApp() {
         settingsAppMode = true;
         settingsWallpaperPage = 0;
+        settingsEditingDisplayName = false;
+        settingsDisplayNameBuffer = "";
         rebuildWidgets();
     }
 
     void closeSettingsApp() {
         settingsAppMode = false;
         settingsWallpaperPage = 0;
+        settingsEditingDisplayName = false;
+        settingsDisplayNameBuffer = "";
         rebuildWidgets();
+    }
+
+    String getMyDisplayName() {
+        return com.sammy.minedevice.phone.PhoneData.getDisplayName(getOpenPhoneStack());
+    }
+
+    void startSettingsNameEdit() {
+        settingsDisplayNameBuffer = getMyDisplayName();
+        settingsEditingDisplayName = true;
+    }
+
+    void cancelSettingsNameEdit() {
+        settingsEditingDisplayName = false;
+        settingsDisplayNameBuffer = "";
+    }
+
+    void confirmSettingsDisplayName() {
+        PhoneNetworkingClient.requestSetDisplayName(settingsDisplayNameBuffer);
+        settingsEditingDisplayName = false;
+        settingsDisplayNameBuffer = "";
+    }
+
+    void startContactRename(String number, String currentName) {
+        contactRenameNumber = number;
+        contactRenameBuffer = currentName.equals(number) ? "" : currentName;
+    }
+
+    void cancelContactRename() {
+        contactRenameNumber = "";
+        contactRenameBuffer = "";
+    }
+
+    void confirmContactRename() {
+        if (!contactRenameNumber.isEmpty()) {
+            requestSaveContact(contactRenameNumber, contactRenameBuffer);
+            cancelContactRename();
+        }
+    }
+
+    void startContactShareMode() {
+        contactShareMode = true;
+        PhoneNetworkingClient.requestContactShareState(true);
+    }
+
+    void stopContactShareMode() {
+        contactShareMode = false;
+        PhoneNetworkingClient.requestContactShareState(false);
+    }
+
+    void handleContactScanResult(String number, String displayName) {
+        if (number == null || number.isEmpty()) {
+            contactScanResultNumber = "";
+            contactScanResultName = "";
+        } else {
+            contactScanResultNumber = number;
+            contactScanResultName = displayName == null ? "" : displayName;
+        }
+    }
+
+    UiRect getContactShareButtonBounds() {
+        return getLayoutState().contactShareButtonBounds();
+    }
+
+    UiRect getContactScanButtonBounds() {
+        return getLayoutState().contactScanButtonBounds();
+    }
+
+    UiRect getContactScanSaveButtonBounds() {
+        return getLayoutState().contactScanSaveButtonBounds();
+    }
+
+    UiRect getContactEditButtonBounds(int index, int contactCount) {
+        String saveCandidateNumber = getContactSaveCandidateNumber();
+        boolean canSaveNumber = !saveCandidateNumber.isEmpty() && !hasSavedContact(saveCandidateNumber);
+        return getLayoutState().contactEditButtonBounds(index, contactCount, canSaveNumber, isContactsPageNavActive());
     }
 
     // ── Wallpaper ─────────────────────────────────────────────────────────────

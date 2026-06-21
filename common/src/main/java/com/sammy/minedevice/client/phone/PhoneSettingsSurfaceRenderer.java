@@ -64,37 +64,111 @@ final class PhoneSettingsSurfaceRenderer {
         int paddingX = Math.max(4, Math.round(8 * screen.scale));
         int itemLeft = contentLeft + paddingX;
         int itemRight = contentRight - paddingX;
+        int itemWidth = itemRight - itemLeft;
+        int cardGap = Math.max(3, Math.round(4 * screen.scale));
+        int cardY = headerBottom + cardGap;
 
-        // Show "Coming Soon" message
-        Component comingSoonText = Component.translatable("screen.minedevice.phone.settings.coming_soon");
-        Component hintText = Component.translatable("screen.minedevice.phone.settings.coming_soon_hint");
-        
-        int textMaxWidth = itemRight - itemLeft;
-        float comingSoonScale = PhoneScreenDraw.textScaleToFit(font, comingSoonText, textMaxWidth, 0.8F);
-        float hintScale = PhoneScreenDraw.textScaleToFit(font, hintText, textMaxWidth, 0.6F);
-        
-        int comingSoonWidth = PhoneScreenDraw.scaledTextWidth(font, comingSoonText, comingSoonScale);
-        int comingSoonHeight = PhoneScreenDraw.scaledTextHeight(font, comingSoonScale);
-        int hintWidth = PhoneScreenDraw.scaledTextWidth(font, hintText, hintScale);
-        int hintHeight = PhoneScreenDraw.scaledTextHeight(font, hintScale);
-        
-        int centerX = contentLeft + (contentRight - contentLeft) / 2;
-        int centerY = contentTop + (contentBottom - contentTop) / 2;
-        
-        int comingSoonX = centerX - comingSoonWidth / 2;
-        int comingSoonY = centerY - comingSoonHeight - Math.max(4, Math.round(6 * screen.scale));
-        int hintX = centerX - hintWidth / 2;
-        int hintY = centerY + Math.max(4, Math.round(6 * screen.scale));
-        
-        PhoneScreenDraw.drawScaledText(guiGraphics, font, comingSoonText, comingSoonX, comingSoonY, TEXT_PRIMARY, false, comingSoonScale);
-        PhoneScreenDraw.drawScaledText(guiGraphics, font, hintText, hintX, hintY, TEXT_SECONDARY, false, hintScale);
+        // --- Display name card ---
+        int cardHeight = Math.max(32, Math.round(38 * screen.scale));
+        renderCardBackground(guiGraphics, itemLeft, cardY, itemRight, cardY + cardHeight);
+
+        int cardPad = Math.max(4, Math.round(5 * screen.scale));
+        Component labelText = Component.translatable("screen.minedevice.phone.settings.display_name.label");
+        float labelScale = Math.min(0.9F, (float) (cardHeight / 2) / Math.max(1, font.lineHeight));
+        PhoneScreenDraw.drawScaledText(guiGraphics, font, labelText, itemLeft + cardPad, cardY + cardPad, TEXT_SECONDARY, false, labelScale);
+
+        String currentName = screen.getMyDisplayName();
+        boolean editing = screen.settingsEditingDisplayName;
+        String valueStr = editing ? (screen.settingsDisplayNameBuffer + "|") : (currentName.isEmpty()
+                ? minecraft.player != null ? minecraft.player.getGameProfile().getName() : "" : currentName);
+        Component valueText = Component.literal(valueStr);
+
+        int valueY = cardY + cardPad + PhoneScreenDraw.scaledTextHeight(font, labelScale) + Math.max(2, Math.round(3 * screen.scale));
+        int valueMaxWidth = itemWidth - cardPad * 2 - Math.max(16, Math.round(20 * screen.scale));
+        float valueScale = PhoneScreenDraw.textScaleToFit(font, valueText, Math.max(1, valueMaxWidth), 0.35F);
+        int valueColor = editing ? ICON_BLUE : (currentName.isEmpty() ? TEXT_SECONDARY : TEXT_PRIMARY);
+        PhoneScreenDraw.drawScaledText(guiGraphics, font, valueText, itemLeft + cardPad, valueY, valueColor, false, valueScale);
+
+        // Edit button area (right side)
+        if (!editing) {
+            UiRect editBtnBounds = getSettingsEditButtonBounds(screen, itemLeft, cardY, itemRight, cardY + cardHeight);
+            guiGraphics.fill(editBtnBounds.left, editBtnBounds.top, editBtnBounds.right(), editBtnBounds.bottom(), ICON_BLUE);
+            Component editLabel = Component.translatable("screen.minedevice.phone.settings.display_name.edit");
+            float btnScale = PhoneScreenDraw.textScaleToFit(font, editLabel, editBtnBounds.width - cardPad, 0.25F);
+            int btnTw = PhoneScreenDraw.scaledTextWidth(font, editLabel, btnScale);
+            int btnTh = PhoneScreenDraw.scaledTextHeight(font, btnScale);
+            PhoneScreenDraw.drawScaledText(guiGraphics, font, editLabel,
+                    editBtnBounds.left + (editBtnBounds.width - btnTw) / 2,
+                    editBtnBounds.top + (editBtnBounds.height - btnTh) / 2,
+                    0xFFFFFFFF, false, btnScale);
+        } else {
+            // Save / Cancel hints
+            Component saveHint = Component.translatable("screen.minedevice.phone.settings.display_name.save_hint");
+            float hintScale = PhoneScreenDraw.textScaleToFit(font, saveHint, Math.max(1, itemWidth - cardPad * 2), 0.25F);
+            int hintY = cardY + cardHeight - PhoneScreenDraw.scaledTextHeight(font, hintScale) - cardPad;
+            PhoneScreenDraw.drawScaledText(guiGraphics, font, saveHint, itemLeft + cardPad, hintY, TEXT_SECONDARY, false, hintScale);
+        }
+
+        // My number card
+        int numCardY = cardY + cardHeight + cardGap;
+        int numCardH = Math.max(24, Math.round(28 * screen.scale));
+        renderCardBackground(guiGraphics, itemLeft, numCardY, itemRight, numCardY + numCardH);
+        Component myNumLabel = Component.translatable("screen.minedevice.phone.settings.my_number");
+        String myNumber = screen.getOwnPhoneNumber();
+        float myNumLabelScale = labelScale;
+        float myNumScale = Math.min(0.85F, myNumLabelScale);
+        PhoneScreenDraw.drawScaledText(guiGraphics, font, myNumLabel, itemLeft + cardPad,
+                numCardY + (numCardH - PhoneScreenDraw.scaledTextHeight(font, myNumLabelScale)) / 2,
+                TEXT_SECONDARY, false, myNumLabelScale);
+        Component myNumText = Component.literal(myNumber);
+        int myNumW = PhoneScreenDraw.scaledTextWidth(font, myNumText, myNumScale);
+        PhoneScreenDraw.drawScaledText(guiGraphics, font, myNumText,
+                itemRight - cardPad - myNumW,
+                numCardY + (numCardH - PhoneScreenDraw.scaledTextHeight(font, myNumScale)) / 2,
+                TEXT_PRIMARY, false, myNumScale);
 
         // guiGraphics.disableScissor();
     }
 
     static boolean handleClick(PhoneScreen screen, double mouseX, double mouseY) {
-        // No clickable items in settings yet, return false to allow navigation buttons to work
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null) return false;
+        UiRect contentBounds = screen.getMediaSurfaceBounds();
+        int contentLeft = contentBounds.left;
+        int contentRight = contentBounds.right();
+        int contentTop = contentBounds.top;
+        int headerExpand = Math.max(4, Math.round(6 * screen.scale));
+        int headerHeight = Math.max(28, Math.round(34 * screen.scale));
+        int headerBottom = contentTop + headerHeight;
+        int paddingX = Math.max(4, Math.round(8 * screen.scale));
+        int itemLeft = contentLeft + paddingX;
+        int itemRight = contentRight - paddingX;
+        int cardGap = Math.max(3, Math.round(4 * screen.scale));
+        int cardY = headerBottom + cardGap;
+        int cardHeight = Math.max(32, Math.round(38 * screen.scale));
+
+        if (!screen.settingsEditingDisplayName) {
+            UiRect editBtnBounds = getSettingsEditButtonBounds(screen, itemLeft, cardY, itemRight, cardY + cardHeight);
+            if (editBtnBounds.contains(mouseX, mouseY)) {
+                screen.startSettingsNameEdit();
+                return true;
+            }
+        }
         return false;
+    }
+
+    private static UiRect getSettingsEditButtonBounds(PhoneScreen screen, int itemLeft, int cardTop, int itemRight, int cardBottom) {
+        int cardPad = Math.max(4, Math.round(5 * screen.scale));
+        int btnWidth = Math.max(18, Math.round(24 * screen.scale));
+        int btnHeight = Math.max(10, Math.round(12 * screen.scale));
+        int btnX = itemRight - cardPad - btnWidth;
+        int btnY = cardTop + (cardBottom - cardTop - btnHeight) / 2;
+        return new UiRect(btnX, btnY, btnWidth, btnHeight);
+    }
+
+    private static void renderCardBackground(GuiGraphics guiGraphics, int left, int top, int right, int bottom) {
+        guiGraphics.fill(left, top, right, bottom, CARD_EDGE);
+        guiGraphics.fill(left + 1, top + 1, right - 1, bottom - 1, CARD_FILL);
     }
 
     private static void renderSettingsItem(

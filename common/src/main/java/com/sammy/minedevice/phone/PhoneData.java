@@ -30,8 +30,55 @@ public final class PhoneData {
     private static final int MOBILE_PHONE_NUMBER_SPACE = 100000 - MOBILE_PHONE_MIN_NUMBER;
     public static final int MAX_CONTACTS = 6;
     public static final int MAX_CONTACT_NAME_LENGTH = 24;
+    public static final String DISPLAY_NAME_TAG = "display_name";
+    public static final int MAX_DISPLAY_NAME_LENGTH = 16;
 
     private PhoneData() {
+    }
+
+    public static String getDisplayName(ItemStack phoneStack) {
+        if (phoneStack.isEmpty() || !phoneStack.hasTag()) {
+            return "";
+        }
+        CompoundTag tag = phoneStack.getTag();
+        if (tag == null || !tag.contains(DISPLAY_NAME_TAG)) {
+            return "";
+        }
+        return tag.getString(DISPLAY_NAME_TAG);
+    }
+
+    public static String getDisplayName(Player player) {
+        return getDisplayName(findPhoneStack(player));
+    }
+
+    public static void setDisplayName(ItemStack phoneStack, String name) {
+        if (phoneStack.isEmpty()) {
+            return;
+        }
+        String sanitized = sanitizeDisplayName(name);
+        if (sanitized.isEmpty()) {
+            CompoundTag tag = phoneStack.getTag();
+            if (tag != null) {
+                tag.remove(DISPLAY_NAME_TAG);
+            }
+        } else {
+            phoneStack.getOrCreateTag().putString(DISPLAY_NAME_TAG, sanitized);
+        }
+    }
+
+    public static String sanitizeDisplayName(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String trimmed = raw.trim();
+        StringBuilder sb = new StringBuilder(MAX_DISPLAY_NAME_LENGTH);
+        for (int i = 0; i < trimmed.length() && sb.length() < MAX_DISPLAY_NAME_LENGTH; i++) {
+            char c = trimmed.charAt(i);
+            if (c >= 0x20 && c != 0x7F) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     public static String getPhoneNumber(Player player) {

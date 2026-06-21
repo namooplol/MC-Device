@@ -256,19 +256,56 @@ final class PhoneScreenLayout {
                 panelBounds.width - (inset * 2), buttonHeight);
     }
 
-    UiRect contactRowsBounds(boolean canSaveCurrentNumber) {
+    private int contactPageNavHeight() {
+        return Math.max(12, Math.round(14 * scale));
+    }
+
+    UiRect contactRowsBounds(boolean canSaveCurrentNumber, boolean hasPageNav) {
         UiRect panelBounds = contactPanelBounds();
         int inset = Math.max(4, Math.round(5 * scale));
         int top = panelBounds.top + inset;
         if (canSaveCurrentNumber) {
             top = contactSaveButtonBounds().bottom() + Math.max(4, Math.round(5 * scale));
         }
+        int bottom = panelBounds.bottom() - inset;
+        if (hasPageNav) {
+            UiRect navBounds = contactPageNavBounds(canSaveCurrentNumber);
+            int gap = Math.max(2, Math.round(3 * scale));
+            bottom = navBounds.top - gap;
+        }
         return new UiRect(panelBounds.left + inset, top,
-                panelBounds.width - (inset * 2), Math.max(20, panelBounds.bottom() - inset - top));
+                panelBounds.width - (inset * 2), Math.max(20, bottom - top));
     }
 
-    UiRect contactRowBounds(int index, int contactCount, boolean canSaveCurrentNumber) {
-        UiRect rowsBounds = contactRowsBounds(canSaveCurrentNumber);
+    UiRect contactRowsBounds(boolean canSaveCurrentNumber) {
+        return contactRowsBounds(canSaveCurrentNumber, false);
+    }
+
+    UiRect contactPageNavBounds(boolean canSaveCurrentNumber) {
+        UiRect shareBounds = contactShareButtonBounds();
+        int height = contactPageNavHeight();
+        int gap = Math.max(2, Math.round(3 * scale));
+        UiRect panelBounds = contactPanelBounds();
+        int inset = Math.max(4, Math.round(5 * scale));
+        int navBottom = shareBounds.top - gap;
+        int navTop = navBottom - height;
+        return new UiRect(panelBounds.left + inset, navTop, panelBounds.width - (inset * 2), height);
+    }
+
+    UiRect contactPrevPageButtonBounds(boolean canSaveCurrentNumber) {
+        UiRect nav = contactPageNavBounds(canSaveCurrentNumber);
+        int w = (nav.width / 2) - Math.max(1, Math.round(2 * scale));
+        return new UiRect(nav.left, nav.top, w, nav.height);
+    }
+
+    UiRect contactNextPageButtonBounds(boolean canSaveCurrentNumber) {
+        UiRect nav = contactPageNavBounds(canSaveCurrentNumber);
+        int w = (nav.width / 2) - Math.max(1, Math.round(2 * scale));
+        return new UiRect(nav.right() - w, nav.top, w, nav.height);
+    }
+
+    UiRect contactRowBounds(int index, int contactCount, boolean canSaveCurrentNumber, boolean hasPageNav) {
+        UiRect rowsBounds = contactRowsBounds(canSaveCurrentNumber, hasPageNav);
         int rowGap = Math.max(3, Math.round(4 * scale));
         int safeCount = Math.max(1, contactCount);
         int availableHeight = rowsBounds.height - (rowGap * (safeCount - 1));
@@ -277,8 +314,12 @@ final class PhoneScreenLayout {
         return new UiRect(rowsBounds.left, top, rowsBounds.width, rowHeight);
     }
 
-    UiRect contactDeleteButtonBounds(int index, int contactCount, boolean canSaveCurrentNumber) {
-        UiRect rowBounds = contactRowBounds(index, contactCount, canSaveCurrentNumber);
+    UiRect contactRowBounds(int index, int contactCount, boolean canSaveCurrentNumber) {
+        return contactRowBounds(index, contactCount, canSaveCurrentNumber, false);
+    }
+
+    UiRect contactDeleteButtonBounds(int index, int contactCount, boolean canSaveCurrentNumber, boolean hasPageNav) {
+        UiRect rowBounds = contactRowBounds(index, contactCount, canSaveCurrentNumber, hasPageNav);
         int size = Math.min(rowBounds.height - Math.max(4, Math.round(6 * scale)), Math.max(12, Math.round(15 * scale)));
         int padding = Math.max(3, Math.round(4 * scale));
         int x = rowBounds.right() - size - padding;
@@ -286,13 +327,58 @@ final class PhoneScreenLayout {
         return new UiRect(x, y, size, size);
     }
 
-    int contactIndexAt(double mouseX, double mouseY, int contactCount, boolean canSaveCurrentNumber) {
+    UiRect contactDeleteButtonBounds(int index, int contactCount, boolean canSaveCurrentNumber) {
+        return contactDeleteButtonBounds(index, contactCount, canSaveCurrentNumber, false);
+    }
+
+    UiRect contactEditButtonBounds(int index, int contactCount, boolean canSaveCurrentNumber, boolean hasPageNav) {
+        UiRect deleteBounds = contactDeleteButtonBounds(index, contactCount, canSaveCurrentNumber, hasPageNav);
+        int gap = Math.max(2, Math.round(3 * scale));
+        return new UiRect(deleteBounds.left - deleteBounds.width - gap, deleteBounds.top, deleteBounds.width, deleteBounds.height);
+    }
+
+    UiRect contactEditButtonBounds(int index, int contactCount, boolean canSaveCurrentNumber) {
+        return contactEditButtonBounds(index, contactCount, canSaveCurrentNumber, false);
+    }
+
+    private int contactActionBarHeight() {
+        return Math.max(14, Math.round(16 * scale));
+    }
+
+    UiRect contactShareButtonBounds() {
+        UiRect panelBounds = contactPanelBounds();
+        int inset = Math.max(4, Math.round(5 * scale));
+        int height = contactActionBarHeight();
+        int halfWidth = (panelBounds.width - (inset * 2) - Math.max(2, Math.round(3 * scale))) / 2;
+        int y = panelBounds.bottom() - inset - height;
+        return new UiRect(panelBounds.left + inset, y, halfWidth, height);
+    }
+
+    UiRect contactScanButtonBounds() {
+        UiRect shareBounds = contactShareButtonBounds();
+        int gap = Math.max(2, Math.round(3 * scale));
+        return new UiRect(shareBounds.right() + gap, shareBounds.top, shareBounds.width, shareBounds.height);
+    }
+
+    UiRect contactScanSaveButtonBounds() {
+        UiRect panelBounds = contactPanelBounds();
+        int inset = Math.max(4, Math.round(5 * scale));
+        int height = Math.max(14, Math.round(16 * scale));
+        int y = contactShareButtonBounds().top - Math.max(3, Math.round(4 * scale)) - height;
+        return new UiRect(panelBounds.left + inset, y, panelBounds.width - (inset * 2), height);
+    }
+
+    int contactIndexAt(double mouseX, double mouseY, int contactCount, boolean canSaveCurrentNumber, boolean hasPageNav) {
         for (int index = 0; index < contactCount; index++) {
-            if (contactRowBounds(index, contactCount, canSaveCurrentNumber).contains(mouseX, mouseY)) {
+            if (contactRowBounds(index, contactCount, canSaveCurrentNumber, hasPageNav).contains(mouseX, mouseY)) {
                 return index;
             }
         }
         return -1;
+    }
+
+    int contactIndexAt(double mouseX, double mouseY, int contactCount, boolean canSaveCurrentNumber) {
+        return contactIndexAt(mouseX, mouseY, contactCount, canSaveCurrentNumber, false);
     }
 
     UiRect callConnectButtonBounds() {

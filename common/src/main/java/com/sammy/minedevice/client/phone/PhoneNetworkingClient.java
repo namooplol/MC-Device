@@ -161,6 +161,17 @@ public final class PhoneNetworkingClient {
             });
         });
 
+        NetworkManager.registerReceiver(NetworkManager.s2c(), PhoneNetworking.CONTACT_SCAN_RESULT, (buf, context) -> {
+            String number = buf.readUtf(PhoneData.PHONE_NUMBER_LENGTH);
+            String displayName = buf.readUtf(PhoneData.MAX_CONTACT_NAME_LENGTH);
+            context.queue(() -> {
+                Minecraft minecraft = Minecraft.getInstance();
+                if (minecraft != null && minecraft.screen instanceof PhoneScreen phoneScreen) {
+                    phoneScreen.handleContactScanResult(number, displayName);
+                }
+            });
+        });
+
         NetworkManager.registerReceiver(NetworkManager.s2c(), PhoneNetworking.BANK_TRANSFER_RECEIPT, (buf, context) -> {
             String targetNumber = buf.readUtf(PhoneData.PHONE_NUMBER_LENGTH);
             String targetName = buf.readUtf(PhoneData.MAX_CONTACT_NAME_LENGTH);
@@ -319,6 +330,22 @@ public final class PhoneNetworkingClient {
         buf.writeEnum(preferredHand == null ? InteractionHand.MAIN_HAND : preferredHand);
         buf.writeUtf(photoFileName == null ? "" : photoFileName, com.sammy.minedevice.phone.PhonePhotoData.MAX_PHOTO_FILE_NAME_LENGTH);
         NetworkManager.sendToServer(PhoneNetworking.PHOTO_DELETE, buf);
+    }
+
+    public static void requestSetDisplayName(String displayName) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        buf.writeUtf(displayName == null ? "" : displayName, com.sammy.minedevice.phone.PhoneData.MAX_DISPLAY_NAME_LENGTH);
+        NetworkManager.sendToServer(PhoneNetworking.SETTINGS_DISPLAY_NAME_SET, buf);
+    }
+
+    public static void requestContactShareState(boolean active) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        buf.writeBoolean(active);
+        NetworkManager.sendToServer(PhoneNetworking.CONTACT_SHARE_STATE, buf);
+    }
+
+    public static void requestContactScan() {
+        NetworkManager.sendToServer(PhoneNetworking.CONTACT_SCAN, new FriendlyByteBuf(Unpooled.buffer()));
     }
 
     public static void requestBankSync() {
